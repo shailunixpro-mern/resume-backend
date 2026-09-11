@@ -1,19 +1,56 @@
 const express = require("express");
-const mongoose = require("mongoose");
 const cors = require("cors");
 require("dotenv").config();
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+const connectDB = require("./config/db");
+const profileRoutes = require("./routes/profileRoutes");
+const projectRoutes = require("./routes/projectRoutes");
+const skillRoutes = require("./routes/skillRoutes");
+const portfolioRoutes = require("./routes/portfolioRoutes");
+const { notFoundHandler, errorHandler } = require("./middleware/errorMiddleware");
 
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB connected"))
-  .catch(err => console.error(err));
+const app = express();
+
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
+  : ["http://localhost:3000"];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("CORS policy blocked this origin"));
+    },
+  })
+);
+app.use(express.json({ limit: "1mb" }));
+
+connectDB();
 
 app.get("/", (req, res) => {
-  res.send("API Running");
+  res.json({
+    message: "Resume API running",
+    docs: "/api/health",
+  });
 });
+
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.use("/api/profile", profileRoutes);
+app.use("/api/projects", projectRoutes);
+app.use("/api/skills", skillRoutes);
+app.use("/api/portfolio", portfolioRoutes);
+
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
