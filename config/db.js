@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 
+const Intro = require("../models/Intro");
 const Profile = require("../models/Profile");
 const Project = require("../models/Project");
 const Skill = require("../models/Skill");
@@ -52,6 +53,7 @@ const ensureCollections = async () => {
 	const existingNames = new Set(existingCollections.map((collection) => collection.name));
 
 	for (const collectionName of [
+		Intro.collection.collectionName,
 		Profile.collection.collectionName,
 		Project.collection.collectionName,
 		Skill.collection.collectionName,

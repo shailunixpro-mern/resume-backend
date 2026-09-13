@@ -25,6 +25,8 @@ npm run dev
 - `GET /api/profile` Profile payload
 - `GET /api/projects` Project list
 - `GET /api/skills` Skills list
+- `GET /api/intros` List Intro documents
+- `POST /api/intros` Create an Intro document
 - `GET /api/portfolio` Aggregated profile + skills + projects for efficient frontend loading
 
 ## Production Notes

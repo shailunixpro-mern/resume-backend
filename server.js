@@ -3,6 +3,7 @@ const cors = require("cors");
 require("dotenv").config();
 
 const { connectDB, getDbStatus } = require("./config/db");
+const introRoutes = require("./routes/introRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const projectRoutes = require("./routes/projectRoutes");
 const skillRoutes = require("./routes/skillRoutes");
@@ -61,6 +62,7 @@ app.get("/api/system/status", (req, res) => {
   });
 });
 
+app.use("/api/intros", introRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/skills", skillRoutes);
