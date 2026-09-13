@@ -46,12 +46,15 @@ app.get("/api/health", (req, res) => {
 
 app.get("/api/system/status", (req, res) => {
   const backendUrl = `${req.protocol}://${req.get("host")}`;
+  const nowIso = new Date().toISOString();
   res.json({
     status: "ok",
     backend: {
       url: backendUrl,
       uptime: Math.round(process.uptime()),
-      timestamp: new Date().toISOString(),
+      timestamp: nowIso,
+      healthcheckStatus: "ok",
+      healthcheckLastSuccessAt: nowIso,
       healthcheckUrl: `${backendUrl}/api/health`,
     },
     database: getDbStatus(),

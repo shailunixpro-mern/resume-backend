@@ -16,6 +16,8 @@ const READY_STATE = {
 const dbStatus = {
 	configured: false,
 	dbName: DEFAULT_DB_NAME,
+	mongoUri: null,
+	mongoUriVisible: false,
 	host: null,
 	state: READY_STATE[mongoose.connection.readyState],
 	lastConnectedAt: null,
@@ -36,6 +38,8 @@ const currentState = () => READY_STATE[mongoose.connection.readyState] || "unkno
 const getDbStatus = () => ({
 	configured: dbStatus.configured,
 	dbName: dbStatus.dbName,
+	mongoUri: dbStatus.mongoUriVisible ? dbStatus.mongoUri : null,
+	mongoUriVisible: dbStatus.mongoUriVisible,
 	host: dbStatus.host,
 	state: currentState(),
 	lastConnectedAt: dbStatus.lastConnectedAt,
@@ -64,6 +68,8 @@ const connectDB = async () => {
 
 	dbStatus.configured = Boolean(mongoUri);
 	dbStatus.dbName = dbName;
+	dbStatus.mongoUriVisible = process.env.EXPOSE_MONGO_URI_TO_CLIENT === "true";
+	dbStatus.mongoUri = mongoUri || null;
 	dbStatus.host = mongoUri ? parseMongoHost(mongoUri) : null;
 	dbStatus.lastError = null;
 
