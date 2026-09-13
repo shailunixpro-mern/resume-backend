@@ -2,7 +2,7 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
-const connectDB = require("./config/db");
+const { connectDB, getDbStatus } = require("./config/db");
 const profileRoutes = require("./routes/profileRoutes");
 const projectRoutes = require("./routes/projectRoutes");
 const skillRoutes = require("./routes/skillRoutes");
@@ -41,6 +41,20 @@ app.get("/api/health", (req, res) => {
     status: "ok",
     uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
+  });
+});
+
+app.get("/api/system/status", (req, res) => {
+  const backendUrl = `${req.protocol}://${req.get("host")}`;
+  res.json({
+    status: "ok",
+    backend: {
+      url: backendUrl,
+      uptime: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+      healthcheckUrl: `${backendUrl}/api/health`,
+    },
+    database: getDbStatus(),
   });
 });
 
