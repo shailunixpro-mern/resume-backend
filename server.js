@@ -14,13 +14,39 @@ const { notFoundHandler, errorHandler } = require("./middleware/errorMiddleware"
 const app = express();
 
 const allowedOrigins = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
-  : ["http://localhost:3000"];
+  ? process.env.CORS_ORIGINS.split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean)
+  : ["http://localhost:3000", "http://localhost:5173"];
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) {
+    return true;
+  }
+
+  if (allowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(origin);
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Allow Vercel deployments (preview + production) over HTTPS.
+    if (parsed.protocol === "https:" && hostname.endsWith(".vercel.app")) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+};
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
       return callback(new Error("CORS policy blocked this origin"));
