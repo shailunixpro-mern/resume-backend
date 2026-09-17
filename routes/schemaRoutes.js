@@ -4,6 +4,7 @@ const {
 	listCollections,
 	describeCollection,
 	createCollection,
+	updateCollectionSchema,
 } = require("../controllers/schemaController");
 
 const router = express.Router();
@@ -18,5 +19,6 @@ router.get("/types", (req, res) => {
 router.get("/collections", listCollections);
 router.get("/collections/:collectionName", describeCollection);
 router.post("/collections", createCollection);
+router.patch("/collections/:collectionName", updateCollectionSchema);
 
 module.exports = router;

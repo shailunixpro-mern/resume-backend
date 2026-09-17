@@ -19,6 +19,12 @@ const SUPPORTED_BSON_TYPES = new Set([
 
 const COLLECTION_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$/;
 
+const FIELD_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/;
+
+const getCollectionInfo = async (db, collectionName) => {
+	return db.listCollections({ name: collectionName }, { nameOnly: false }).toArray();
+};
+
 const ensureDbConnection = () => {
 	if (!mongoose.connection?.db) {
 		const err = new Error("Database is not connected");
@@ -86,6 +92,74 @@ const validateCollectionName = (collectionName) => {
 	}
 };
 
+const normalizeSchemaBsonType = (definition) => {
+	if (!definition || typeof definition !== "object") {
+		return "string";
+	}
+
+	if (Array.isArray(definition.bsonType)) {
+		const nonNullType = definition.bsonType.find((type) => type !== "null");
+		return nonNullType || definition.bsonType[0] || "string";
+	}
+
+	return definition.bsonType || "string";
+};
+
+const parseExistingSchemaFields = (schema) => {
+	const properties = schema?.properties || {};
+	const requiredSet = new Set(Array.isArray(schema?.required) ? schema.required : []);
+
+	return Object.entries(properties)
+		.filter(([fieldName]) => fieldName !== "_id")
+		.map(([fieldName, definition]) => ({
+			originalName: fieldName,
+			name: fieldName,
+			bsonType: normalizeSchemaBsonType(definition),
+			required: requiredSet.has(fieldName),
+			deleted: false,
+			isNew: false,
+		}));
+};
+
+const validateFieldPayload = (field) => {
+	const originalName = String(field?.originalName || "").trim();
+	const name = String(field?.name || "").trim();
+	const bsonType = String(field?.bsonType || "").trim();
+	const deleted = Boolean(field?.deleted);
+	const required = field?.required !== false;
+	const isNew = Boolean(field?.isNew) || !originalName;
+
+	if (!deleted) {
+		if (!name || !FIELD_NAME_REGEX.test(name)) {
+			const err = new Error(`Invalid field name: ${name || "(empty)"}`);
+			err.statusCode = 400;
+			throw err;
+		}
+
+		if (!SUPPORTED_BSON_TYPES.has(bsonType)) {
+			const err = new Error(`Unsupported bsonType for field '${name}': ${bsonType}`);
+			err.statusCode = 400;
+			throw err;
+		}
+	}
+
+	return {
+		originalName: originalName || null,
+		name: name || null,
+		bsonType: bsonType || null,
+		deleted,
+		required,
+		isNew,
+	};
+};
+
+const buildSchemaUpdateCommand = (collectionName, schema, options) => ({
+	collMod: collectionName,
+	validator: { $jsonSchema: schema },
+	validationLevel: options?.validationLevel || "strict",
+	validationAction: options?.validationAction || "error",
+});
+
 const listCollections = async (req, res, next) => {
 	try {
 		const db = ensureDbConnection();
@@ -107,9 +181,7 @@ const describeCollection = async (req, res, next) => {
 		const collectionName = req.params.collectionName;
 		validateCollectionName(collectionName);
 
-		const collectionInfo = await db
-			.listCollections({ name: collectionName }, { nameOnly: false })
-			.toArray();
+		const collectionInfo = await getCollectionInfo(db, collectionName);
 
 		if (collectionInfo.length === 0) {
 			res.status(404);
@@ -119,6 +191,7 @@ const describeCollection = async (req, res, next) => {
 		const options = collectionInfo[0].options || {};
 		const validatorSchema = options.validator?.$jsonSchema || null;
 		const sampleDoc = await db.collection(collectionName).findOne({});
+		const editableFields = validatorSchema ? parseExistingSchemaFields(validatorSchema) : [];
 
 		res.json({
 			success: true,
@@ -126,6 +199,7 @@ const describeCollection = async (req, res, next) => {
 				collectionName,
 				validatorSchema,
 				sampledSchema: inferSchemaFromDocument(sampleDoc),
+				editableFields,
 				validationLevel: options.validationLevel || null,
 				validationAction: options.validationAction || null,
 			},
@@ -215,9 +289,149 @@ const createCollection = async (req, res, next) => {
 	}
 };
 
+const updateCollectionSchema = async (req, res, next) => {
+	try {
+		const db = ensureDbConnection();
+		const collectionName = req.params.collectionName;
+		validateCollectionName(collectionName);
+
+		const collectionInfo = await getCollectionInfo(db, collectionName);
+		if (collectionInfo.length === 0) {
+			res.status(404);
+			throw new Error(`Collection not found: ${collectionName}`);
+		}
+
+		const { fields } = req.body;
+		if (!Array.isArray(fields)) {
+			res.status(400);
+			throw new Error("fields must be an array");
+		}
+
+		const currentOptions = collectionInfo[0].options || {};
+		const normalizedFields = fields.map(validateFieldPayload);
+		const activeFields = normalizedFields.filter((field) => !field.deleted);
+		const uniqueNames = new Set();
+
+		for (const field of activeFields) {
+			if (uniqueNames.has(field.name)) {
+				res.status(400);
+				throw new Error(`Duplicate field name detected: ${field.name}`);
+			}
+
+			uniqueNames.add(field.name);
+		}
+
+		const deletedSourceNames = normalizedFields
+			.filter((field) => field.deleted && field.originalName)
+			.map((field) => field.originalName);
+		const renamedFields = normalizedFields.filter(
+			(field) => !field.deleted && field.originalName && field.originalName !== field.name
+		);
+		const newFields = normalizedFields.filter((field) => !field.deleted && !field.originalName);
+
+		const collisionNames = new Set([...deletedSourceNames, ...renamedFields.map((field) => field.originalName)]);
+		for (const field of activeFields) {
+			if (collisionNames.has(field.name) && field.originalName !== field.name) {
+				res.status(400);
+				throw new Error(
+					`Field rename conflicts with a deleted field name: ${field.name}. Remove the conflict and try again.`
+				);
+			}
+		}
+
+		const properties = {};
+		const required = [];
+
+		for (const field of activeFields) {
+			if (field.isNew) {
+				properties[field.name] = { bsonType: [field.bsonType, "null"] };
+			} else {
+				properties[field.name] = { bsonType: field.bsonType };
+			}
+
+			if (field.required) {
+				required.push(field.name);
+			}
+		}
+
+		const nextSchema = {
+			bsonType: "object",
+			required,
+			properties,
+		};
+
+		const schemaUpdateCommand = buildSchemaUpdateCommand(collectionName, nextSchema, currentOptions);
+		await db.command(schemaUpdateCommand);
+
+		const updatePipeline = [];
+		const renameTemps = renamedFields.map((field, index) => ({
+			originalName: field.originalName,
+			finalName: field.name,
+			tempName: `__schema_tmp_${index}_${field.originalName}`,
+		}));
+
+		if (renameTemps.length > 0) {
+			const tempSetStage = {};
+			for (const rename of renameTemps) {
+				tempSetStage[rename.tempName] = `$${rename.originalName}`;
+			}
+			updatePipeline.push({ $set: tempSetStage });
+		}
+
+		const unsetFields = new Set([...deletedSourceNames, ...renamedFields.map((field) => field.originalName)]);
+		if (unsetFields.size > 0) {
+			updatePipeline.push({ $unset: Array.from(unsetFields) });
+		}
+
+		if (newFields.length > 0) {
+			const newFieldStage = {};
+			for (const field of newFields) {
+				newFieldStage[field.name] = null;
+			}
+			updatePipeline.push({ $set: newFieldStage });
+		}
+
+		if (renameTemps.length > 0) {
+			const finalRenameStage = {};
+			for (const rename of renameTemps) {
+				finalRenameStage[rename.finalName] = `$${rename.tempName}`;
+			}
+			updatePipeline.push({ $set: finalRenameStage });
+
+			const tempUnsetStage = renameTemps.map((rename) => rename.tempName);
+			updatePipeline.push({ $unset: tempUnsetStage });
+		}
+
+		let updateResult = null;
+		if (updatePipeline.length > 0) {
+			updateResult = await db
+				.collection(collectionName)
+				.updateMany({}, updatePipeline, { bypassDocumentValidation: true });
+		}
+
+		const refreshedInfo = await getCollectionInfo(db, collectionName);
+		const updatedSchema = refreshedInfo[0]?.options?.validator?.$jsonSchema || null;
+
+		res.json({
+			success: true,
+			message: `Collection schema updated: ${collectionName}`,
+			data: {
+				collectionName,
+				updatedSchema,
+				modifiedDocuments: updateResult?.modifiedCount || 0,
+				matchedDocuments: updateResult?.matchedCount || 0,
+				commandRan: schemaUpdateCommand,
+			},
+		});
+	} catch (error) {
+		next(error);
+	}
+};
+
 module.exports = {
 	SUPPORTED_BSON_TYPES: Array.from(SUPPORTED_BSON_TYPES),
 	listCollections,
 	describeCollection,
 	createCollection,
+	updateCollectionSchema,
 };
