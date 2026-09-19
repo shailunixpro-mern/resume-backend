@@ -9,6 +9,7 @@ const profileRoutes = require("./routes/profileRoutes");
 const projectRoutes = require("./routes/projectRoutes");
 const skillRoutes = require("./routes/skillRoutes");
 const portfolioRoutes = require("./routes/portfolioRoutes");
+const documentRoutes = require("./routes/documentRoutes");
 const { notFoundHandler, errorHandler } = require("./middleware/errorMiddleware");
 
 const app = express();
@@ -95,6 +96,7 @@ app.use("/api/profile", profileRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/skills", skillRoutes);
 app.use("/api/portfolio", portfolioRoutes);
+app.use("/api/documents", documentRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

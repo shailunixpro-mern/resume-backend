@@ -32,6 +32,10 @@ npm run dev
 - `GET /api/schema/collections/:collectionName` Describe selected collection schema
 - `POST /api/schema/collections` Create a collection with JSON schema validation
 - `PATCH /api/schema/collections/:collectionName` Update an existing collection schema, including renames, deletes, additions, and bson type changes
+- `GET /api/documents/metadata` Read the configured database name plus collection names for the document editor UI
+- `GET /api/documents/:collectionName` List recent documents from a collection and return inferred field metadata
+- `POST /api/documents/:collectionName` Insert a typed document using the collection schema
+- `PATCH /api/documents/:collectionName/:documentId` Update a document using the collection schema
 - `GET /api/portfolio` Aggregated profile + skills + projects for efficient frontend loading
 
 ## Production Notes
